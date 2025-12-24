@@ -3,7 +3,7 @@ import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-// Çakışmayı önlemek için Border'ı gizliyoruz
+// ÖNEMLİ: Excel kütüphanesindeki Border ile Flutter'ınkini karıştırmasın diye gizliyoruz
 import 'package:excel/excel.dart' hide Border;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:window_manager/window_manager.dart';
@@ -12,10 +12,11 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await windowManager.ensureInitialized();
 
+  // Kiosk Modu Ayarları (Tam Ekran, Başlıksız)
   WindowOptions windowOptions = const WindowOptions(
     size: Size(1280, 720),
     center: true,
-    backgroundColor: Color(0xFF37474F), // Koyu Arka Plan
+    backgroundColor: Color(0xFF263238), // Koyu Arka Plan
     skipTaskbar: false,
     titleBarStyle: TitleBarStyle.hidden,
     fullScreen: true,
@@ -40,7 +41,7 @@ class OgrenciSeciciApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.teal,
         scaffoldBackgroundColor: const Color(0xFF263238),
-        fontFamily: 'Sans',
+        fontFamily: 'Sans', // Pardus uyumlu font
         useMaterial3: false,
       ),
       home: const HomePage(),
@@ -56,22 +57,18 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  // Asıl öğrenci havuzu
+  // Öğrenci Havuzu
   List<String> allStudents = [
-    'Ali',
-    'Ayşe',
-    'Fatma',
-    'Mehmet',
-    'Can',
-    'Zeynep',
-    'Elif',
-    'Burak',
+    'Öğrenci 1',
+    'Öğrenci 2',
+    'Öğrenci 3',
+    'Öğrenci 4',
   ];
 
-  // Ekranda kartlara atanmış karışık liste
+  // Ekrana dağıtılan kartların listesi
   List<String> cardAssignments = [];
 
-  // Hangi kartların açıldığını takip eden liste
+  // Kartların açık/kapalı durumu
   List<bool> cardRevealedState = [];
 
   final TextEditingController _textController = TextEditingController();
@@ -80,9 +77,11 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    // Başlangıçta kartları dağıt
+
+    // İlk açılışta varsayılan listeyi karıştır
     _resetAndShuffleCards();
 
+    // Uygulama açılınca Excel kontrolü yap
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadStartupExcel();
     });
@@ -100,16 +99,15 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       // Listeyi kopyala ve karıştır
       cardAssignments = List.from(allStudents)..shuffle();
-      // Tüm kartları "kapalı" (false) olarak işaretle
+      // Tüm kartları kapat
       cardRevealedState = List.filled(cardAssignments.length, false);
     });
   }
 
   void _onCardTapped(int index) {
-    // Eğer kart zaten açıksa işlem yapma
-    if (cardRevealedState[index]) return;
+    if (cardRevealedState[index]) return; // Zaten açıksa işlem yapma
 
-    // 1. Ses Çal (Kağıt çevirme sesi)
+    // 1. Çevirme Sesi
     _playSound('cevirme.mp3');
 
     // 2. Kartı Aç
@@ -117,20 +115,21 @@ class _HomePageState extends State<HomePage> {
       cardRevealedState[index] = true;
     });
 
-    // 3. İsim Göründükten Sonra Alkış ve Popup (Biraz gecikmeli)
+    // 3. Alkış ve Popup (Gecikmeli)
     Future.delayed(const Duration(milliseconds: 600), () {
       _playSound('alkis.mp3');
       _showWinnerDialog(cardAssignments[index]);
     });
   }
 
-  // --- Ses ---
+  // --- SES ---
   Future<void> _playSound(String fileName) async {
     await _soundPlayer.stop();
+    // assets/sounds/ klasöründe olduğundan emin olun
     await _soundPlayer.play(AssetSource('sounds/$fileName'));
   }
 
-  // --- Popup ---
+  // --- POPUP (SONUÇ EKRANI) ---
   void _showWinnerDialog(String name) {
     showDialog(
       context: context,
@@ -144,7 +143,7 @@ class _HomePageState extends State<HomePage> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.person, size: 80, color: Colors.teal),
+              const Icon(Icons.star, size: 80, color: Colors.amber),
               const SizedBox(height: 10),
               const Text(
                 "ŞANSLI KİŞİ",
@@ -166,7 +165,17 @@ class _HomePageState extends State<HomePage> {
               const SizedBox(height: 20),
               ElevatedButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text("TAMAM"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 30,
+                    vertical: 10,
+                  ),
+                ),
+                child: const Text(
+                  "TAMAM",
+                  style: TextStyle(color: Colors.white),
+                ),
               ),
             ],
           ),
@@ -175,18 +184,54 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // --- Excel İşlemleri ---
+  // --- OTOMATİK EXCEL YÜKLEME (MASAÜSTÜ DESTEKLİ) ---
   Future<void> _loadStartupExcel() async {
     try {
-      String exePath = File(Platform.resolvedExecutable).parent.path;
-      String filePath = "$exePath/liste.xlsx";
-      File autoFile = File(filePath);
+      List<String> pathsToCheck = [];
 
-      if (await autoFile.exists()) {
-        _parseAndLoadExcel(await autoFile.readAsBytes());
+      // 1. Ev Dizinini Bul (/home/kullanici)
+      String? home = Platform.environment['HOME'];
+      if (home != null) {
+        // Pardus (Türkçe) Masaüstü
+        pathsToCheck.add("$home/Masaüstü/liste.xlsx");
+        // İngilizce Desktop
+        pathsToCheck.add("$home/Desktop/liste.xlsx");
+      }
+
+      // 2. Uygulamanın Kendi Klasörü
+      String exePath = File(Platform.resolvedExecutable).parent.path;
+      pathsToCheck.add("$exePath/liste.xlsx");
+
+      File? foundFile;
+      String loadedFrom = "";
+
+      // 3. Dosyaları Kontrol Et
+      for (String path in pathsToCheck) {
+        File f = File(path);
+        if (await f.exists()) {
+          foundFile = f;
+          loadedFrom = path;
+          break;
+        }
+      }
+
+      // 4. Bulunduysa Yükle
+      if (foundFile != null) {
+        var bytes = await foundFile.readAsBytes();
+        _parseAndLoadExcel(bytes);
+
         if (mounted) {
+          String message =
+              loadedFrom.contains("Masaüstü") || loadedFrom.contains("Desktop")
+              ? "Masaüstündeki liste yüklendi!"
+              : "Otomatik liste yüklendi.";
+
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Liste Otomatik Yüklendi")),
+            SnackBar(
+              content: Text(message),
+              backgroundColor: Colors.teal[700],
+              duration: const Duration(seconds: 3),
+            ),
           );
         }
       }
@@ -195,6 +240,7 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  // --- MANUEL EXCEL SEÇME ---
   Future<void> _importExcel() async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
@@ -205,17 +251,22 @@ class _HomePageState extends State<HomePage> {
       if (result != null) {
         var file = File(result.files.single.path!);
         _parseAndLoadExcel(file.readAsBytesSync());
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text("Liste Güncellendi")));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Liste Başarıyla Güncellendi")),
+          );
+        }
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Hata: $e"), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Hata: $e"), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
+  // --- EXCEL PARSE (OKUMA) ---
   void _parseAndLoadExcel(List<int> bytes) {
     var excel = Excel.decodeBytes(bytes);
     List<String> newItems = [];
@@ -228,7 +279,7 @@ class _HomePageState extends State<HomePage> {
           }
         }
       }
-      break;
+      break; // Sadece ilk sayfa
     }
 
     if (newItems.isNotEmpty) {
@@ -239,12 +290,13 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  // --- MANUEL EKLEME ---
   void _addStudent() {
     if (_textController.text.trim().isNotEmpty) {
       setState(() {
         allStudents.add(_textController.text.trim());
         _textController.clear();
-        _resetAndShuffleCards(); // Yeni kişi eklenince kartları güncelle
+        _resetAndShuffleCards();
       });
     }
   }
@@ -263,7 +315,7 @@ class _HomePageState extends State<HomePage> {
               padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
-                  // Çıkış
+                  // Çıkış Butonu (Kiosk Modu İçin Şart)
                   Align(
                     alignment: Alignment.centerLeft,
                     child: IconButton(
@@ -273,12 +325,12 @@ class _HomePageState extends State<HomePage> {
                         size: 32,
                       ),
                       onPressed: () async => await windowManager.close(),
-                      tooltip: "Kapat",
+                      tooltip: "Uygulamadan Çık",
                     ),
                   ),
                   const Divider(),
 
-                  // Kartları Karıştır Butonu (Büyük)
+                  // Karıştır Butonu
                   ElevatedButton.icon(
                     onPressed: _resetAndShuffleCards,
                     icon: const Icon(Icons.shuffle, size: 28),
@@ -295,11 +347,11 @@ class _HomePageState extends State<HomePage> {
                   ),
                   const SizedBox(height: 20),
 
-                  // Excel Butonu
+                  // Excel Yükle Butonu
                   OutlinedButton.icon(
                     onPressed: _importExcel,
                     icon: const Icon(Icons.file_upload),
-                    label: const Text("Excel Yükle"),
+                    label: const Text("Farklı Excel Seç"),
                     style: OutlinedButton.styleFrom(
                       minimumSize: const Size(double.infinity, 50),
                     ),
@@ -322,7 +374,7 @@ class _HomePageState extends State<HomePage> {
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    "Toplam Kart: ${cardAssignments.length}",
+                    "Toplam: ${cardAssignments.length} Kişi",
                     style: const TextStyle(color: Colors.grey),
                   ),
                 ],
@@ -335,18 +387,17 @@ class _HomePageState extends State<HomePage> {
             flex: 8,
             child: Container(
               padding: const EdgeInsets.all(20),
-              color: const Color(0xFF263238), // Masa örtüsü rengi gibi koyu
+              color: const Color(0xFF263238), // Masa Örtüsü Rengi
               child: cardAssignments.isEmpty
                   ? const Center(
                       child: Text(
                         "Liste Boş",
-                        style: TextStyle(color: Colors.white),
+                        style: TextStyle(color: Colors.white, fontSize: 20),
                       ),
                     )
                   : LayoutBuilder(
                       builder: (context, constraints) {
-                        // Kart sayısına göre sütun sayısını dinamik ayarla
-                        // Kartlar çok küçük olmasın (min 150px genişlik)
+                        // Dinamik Sütun Hesabı
                         int crossAxisCount = (constraints.maxWidth / 180)
                             .floor();
                         if (crossAxisCount < 2) crossAxisCount = 2;
@@ -356,8 +407,7 @@ class _HomePageState extends State<HomePage> {
                           gridDelegate:
                               SliverGridDelegateWithFixedCrossAxisCount(
                                 crossAxisCount: crossAxisCount,
-                                childAspectRatio:
-                                    0.75, // Kart oranı (Dikey dikdörtgen)
+                                childAspectRatio: 0.75, // Kart Oranı
                                 crossAxisSpacing: 15,
                                 mainAxisSpacing: 15,
                               ),
@@ -380,7 +430,7 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-// --- 3D ÇEVRİLEN KART WIDGET'I ---
+// --- 3D KART ANİMASYONU ---
 class FlipCardWidget extends StatefulWidget {
   final String name;
   final bool isRevealed;
@@ -419,11 +469,11 @@ class _FlipCardWidgetState extends State<FlipCardWidget>
   @override
   void didUpdateWidget(covariant FlipCardWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Parent'tan gelen duruma göre animasyonu tetikle
+    // Kart durumu değiştiyse animasyonu tetikle
     if (widget.isRevealed && !oldWidget.isRevealed) {
       _controller.forward();
     } else if (!widget.isRevealed && oldWidget.isRevealed) {
-      _controller.reverse(); // Sıfırla (Kartları karıştırınca kapanması için)
+      _controller.reverse(); // Kartlar karıştırılınca geri kapat
     }
   }
 
@@ -440,26 +490,24 @@ class _FlipCardWidgetState extends State<FlipCardWidget>
       child: AnimatedBuilder(
         animation: _animation,
         builder: (context, child) {
-          // 3D Dönüş Hesabı
-          final angle = _animation.value * pi; // 0 ile 180 derece arası
+          // Dönüş Açısı
+          final angle = _animation.value * pi;
 
-          // Kartın önü mü arkası mı görünüyor?
-          // 90 dereceyi (pi/2) geçince arkası (isim) görünmeli
+          // Kartın arkası mı önü mü görünüyor?
           final isBackVisible = angle >= pi / 2;
 
           final transform = Matrix4.identity()
-            ..setEntry(3, 2, 0.001) // Perspektif derinliği
-            ..rotateY(angle); // Y ekseninde döndür
+            ..setEntry(3, 2, 0.001) // 3D Derinlik
+            ..rotateY(angle); // Döndürme
 
           return Transform(
             transform: transform,
             alignment: Alignment.center,
             child: isBackVisible
                 // --- KARTIN ÖN YÜZÜ (İSİM) ---
-                // Yazının ters görünmemesi için onu da 180 derece döndürmeliyiz
                 ? Transform(
                     alignment: Alignment.center,
-                    transform: Matrix4.identity()..rotateY(pi),
+                    transform: Matrix4.identity()..rotateY(pi), // Yazıyı düzelt
                     child: Container(
                       decoration: BoxDecoration(
                         color: Colors.white,
@@ -478,14 +526,14 @@ class _FlipCardWidgetState extends State<FlipCardWidget>
                         widget.name,
                         textAlign: TextAlign.center,
                         style: const TextStyle(
-                          fontSize: 22,
+                          fontSize: 24,
                           fontWeight: FontWeight.bold,
                           color: Colors.teal,
                         ),
                       ),
                     ),
                   )
-                // --- KARTIN ARKA YÜZÜ (DESEN) ---
+                // --- KARTIN ARKA YÜZÜ (KAPALI) ---
                 : Container(
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
@@ -516,7 +564,7 @@ class _FlipCardWidgetState extends State<FlipCardWidget>
                           "${widget.index + 1}",
                           style: const TextStyle(
                             color: Colors.white54,
-                            fontSize: 18,
+                            fontSize: 20,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
